@@ -28,187 +28,432 @@ function getEdgePosition(bearing) {
   return { x: cx + cos * t, y: cy + sin * t }
 }
 
-// 5 faux joueurs simulés autour de Marseille
 function getFakePlayers(myLat, myLng) {
-  const offset = 0.0005 // ~55m
+  const o = 0.0005
   return [
-    { id: 'sim-1', pseudo: 'Marco', latitude: myLat + offset, longitude: myLng + offset * 0.5, sim: true },
-    { id: 'sim-2', pseudo: 'Sofia', latitude: myLat - offset * 0.8, longitude: myLng + offset, sim: true },
-    { id: 'sim-3', pseudo: 'Karim', latitude: myLat + offset * 0.3, longitude: myLng - offset, sim: true },
-    { id: 'sim-4', pseudo: 'Jade', latitude: myLat - offset, longitude: myLng - offset * 0.6, sim: true },
-    { id: 'sim-5', pseudo: 'Théo', latitude: myLat + offset * 1.2, longitude: myLng + offset * 0.2, sim: true },
+    { id: 'sim-1', pseudo: 'Marco',  latitude: myLat + o,       longitude: myLng + o * 0.5,  sim: true },
+    { id: 'sim-2', pseudo: 'Sofia',  latitude: myLat - o * 0.8, longitude: myLng + o,        sim: true },
+    { id: 'sim-3', pseudo: 'Karim',  latitude: myLat + o * 0.3, longitude: myLng - o,        sim: true },
+    { id: 'sim-4', pseudo: 'Jade',   latitude: myLat - o,       longitude: myLng - o * 0.6,  sim: true },
+    { id: 'sim-5', pseudo: 'Théo',   latitude: myLat + o * 1.2, longitude: myLng + o * 0.2,  sim: true },
   ]
 }
 
 export function renderGame() {
   return `
-  <style>
-    * { -webkit-tap-highlight-color: transparent; }
-    #game {
-      position: fixed; inset: 0; overflow: hidden;
-      background: #0a1a0a; touch-action: none;
-      font-family: system-ui, sans-serif;
-    }
-    #field-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #hud {
-      position: absolute; top: env(safe-area-inset-top, 0px);
-      left: 0; right: 0; display: flex; justify-content: center;
-      gap: 10px; z-index: 20; padding-top: 14px;
-    }
-    .badge {
-      background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
-      border: 0.5px solid rgba(255,255,255,0.12); border-radius: 20px;
-      padding: 6px 14px; font-size: 13px; color: rgba(255,255,255,0.8);
-    }
-    #timer-badge { color: #ff4444; font-weight: 700; display: none; font-size: 15px; }
-    #sim-badge { background: rgba(79,195,247,0.15); border-color: rgba(79,195,247,0.3); color: #4fc3f7; display: none; }
-    #ball {
-      position: absolute; width: 56px; height: 56px; border-radius: 50%;
-      display: none; z-index: 30; cursor: grab;
-      box-shadow: 0 0 20px rgba(255,255,255,0.3);
-      transition: box-shadow 0.15s;
-      /* Soccer ball pattern */
-      background:
-        radial-gradient(circle at 35% 35%, rgba(255,255,255,0.9) 0%, rgba(200,200,200,0.6) 40%, transparent 70%),
-        radial-gradient(circle at 65% 65%, rgba(0,0,0,0.15) 0%, transparent 50%),
-        #ddd;
-    }
-    #ball::before {
-      content: '⚽';
-      position: absolute; inset: 0; display: flex;
-      align-items: center; justify-content: center;
-      font-size: 42px; line-height: 1;
-    }
-    #ball.held { cursor: grabbing; box-shadow: 0 0 40px rgba(255,255,128,0.8); }
-    #ball.incoming { animation: ballPop 0.4s cubic-bezier(0.34,1.56,0.64,1); }
-    @keyframes ballPop { from{transform:scale(0) rotate(-180deg);opacity:0} to{transform:scale(1) rotate(0deg);opacity:1} }
-    .player-dot-wrap {
-      position: absolute; display: flex; flex-direction: column;
-      align-items: center; gap: 5px; z-index: 25;
-      transform: translate(-50%, -50%); cursor: pointer;
-    }
-    .player-dot {
-      width: 18px; height: 18px; border-radius: 50%;
-      background: #4fc3f7; border: 2px solid rgba(255,255,255,0.6);
-      box-shadow: 0 0 10px rgba(79,195,247,0.5);
-      animation: playerBreath 2.5s ease-in-out infinite;
-    }
-    .player-dot.sim-dot { background: #ff9f4a; box-shadow: 0 0 10px rgba(255,159,74,0.5); }
-    .player-label {
-      background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
-      border-radius: 12px; padding: 3px 10px;
-      font-size: 12px; color: rgba(255,255,255,0.9); white-space: nowrap;
-      border: 0.5px solid rgba(255,255,255,0.1);
-    }
-    @keyframes playerBreath { 0%,100%{transform:scale(1);opacity:0.8} 50%{transform:scale(1.3);opacity:1} }
-    .trail {
-      position: absolute; border-radius: 50%;
-      background: radial-gradient(circle, rgba(255,255,200,0.8), transparent);
-      pointer-events: none; z-index: 28;
-    }
-    #status-bar {
-      position: absolute; bottom: env(safe-area-inset-bottom, 0px);
-      left: 0; right: 0; text-align: center;
-      font-size: 14px; color: rgba(255,255,255,0.45);
-      z-index: 20; padding-bottom: 24px;
-      background: linear-gradient(to top, rgba(0,0,0,0.3), transparent);
-      padding-top: 20px;
-    }
-    #timer-ring {
-      position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 22; display: none; pointer-events: none;
-    }
-    #timer-ring circle { transition: stroke-dashoffset 0.1s linear; }
-    .throw-hint {
-      position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, calc(-50% + 50px));
-      color: rgba(255,255,255,0.25); font-size: 12px;
-      z-index: 21; pointer-events: none; text-align: center;
-      display: none; letter-spacing: 1px;
-    }
-  </style>
+<style>
+  *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
 
-  <div id="game">
-    <svg id="field-svg" viewBox="0 0 390 844" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-      <!-- Fond terrain de foot sombre -->
-      <defs>
-        <linearGradient id="grassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" style="stop-color:#0d1f0d"/>
-          <stop offset="50%" style="stop-color:#0a1a0a"/>
-          <stop offset="100%" style="stop-color:#0d1f0d"/>
-        </linearGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="2" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      <rect width="390" height="844" fill="url(#grassGrad)"/>
-      <!-- Lignes de terrain subtiles -->
-      <rect x="18" y="35" width="354" height="774" rx="10" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1.5" filter="url(#glow)"/>
-      <!-- Ligne médiane -->
-      <line x1="18" y1="422" x2="372" y2="422" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-      <!-- Rond central -->
-      <circle cx="195" cy="422" r="65" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-      <circle cx="195" cy="422" r="3" fill="rgba(255,255,255,0.2)"/>
-      <!-- Surface de réparation haut -->
-      <rect x="93" y="35" width="204" height="110" rx="3" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <rect x="143" y="35" width="104" height="55" rx="3" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <!-- Surface de réparation bas -->
-      <rect x="93" y="699" width="204" height="110" rx="3" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <rect x="143" y="754" width="104" height="55" rx="3" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <!-- Corners -->
-      <path d="M18,55 Q28,35 38,55" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <path d="M352,55 Q362,35 372,55" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <path d="M18,789 Q28,809 38,789" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <path d="M352,789 Q362,809 372,789" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
-      <!-- Points de penalty -->
-      <circle cx="195" cy="130" r="2.5" fill="rgba(255,255,255,0.15)"/>
-      <circle cx="195" cy="714" r="2.5" fill="rgba(255,255,255,0.15)"/>
-    </svg>
+  #game {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    overflow: hidden;
+    touch-action: none;
+    font-family: system-ui, sans-serif;
+  }
 
-    <div id="hud">
-      <div class="badge" id="pseudo-badge">—</div>
-      <div class="badge" id="players-badge">0 joueur</div>
-      <div class="badge" id="timer-badge">3s</div>
-      <div class="badge" id="sim-badge">🤖 SIMULATION</div>
-    </div>
+  /* ── TERRAIN ── */
+  #field-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
 
-    <svg id="timer-ring" width="100" height="100" viewBox="0 0 100 100">
-      <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,68,68,0.15)" stroke-width="4"/>
-      <circle id="timer-arc" cx="50" cy="50" r="44" fill="none" stroke="#ff4444" stroke-width="4"
-        stroke-linecap="round" stroke-dasharray="276.5" stroke-dashoffset="0"
-        transform="rotate(-90 50 50)"/>
-    </svg>
+  /* ── HUD ── */
+  #hud {
+    position: absolute;
+    top: env(safe-area-inset-top, 0px);
+    left: 0; right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    z-index: 40;
+    padding-top: 14px;
+  }
+  .badge {
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 0.5px solid rgba(255,255,255,0.13);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+  }
+  #timer-badge { color: #ff4444; font-weight: 700; display: none; font-size: 15px; }
+  #sim-badge { background: rgba(79,195,247,0.18); border-color: rgba(79,195,247,0.35); color: #4fc3f7; display: none; }
 
-    <div id="ball"></div>
-    <div class="throw-hint" id="throw-hint">GLISSE VERS UN JOUEUR</div>
-    <div id="status-bar">En attente...</div>
+  /* ── TIMER RING ── */
+  #timer-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 35;
+    display: none;
+    pointer-events: none;
+  }
+
+  /* ── BALLE ── */
+  #ball {
+    position: absolute;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: none;
+    z-index: 50;
+    cursor: grab;
+    font-size: 44px;
+    line-height: 56px;
+    text-align: center;
+    user-select: none;
+    filter: drop-shadow(0 0 12px rgba(255,255,255,0.35));
+    transition: filter 0.15s;
+  }
+  #ball.held {
+    cursor: grabbing;
+    filter: drop-shadow(0 0 24px rgba(255,255,128,0.9));
+  }
+
+  /* ── JOUEURS ── */
+  .player-dot-wrap {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    z-index: 45;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+  }
+  .player-dot {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #4fc3f7;
+    border: 2px solid rgba(255,255,255,0.6);
+    box-shadow: 0 0 10px rgba(79,195,247,0.6);
+    animation: pBreath 2.5s ease-in-out infinite;
+  }
+  .player-dot.sim { background: #ff9f4a; box-shadow: 0 0 10px rgba(255,159,74,0.6); }
+  .player-label {
+    background: rgba(0,0,0,0.72);
+    backdrop-filter: blur(4px);
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.92);
+    white-space: nowrap;
+    border: 0.5px solid rgba(255,255,255,0.12);
+  }
+  @keyframes pBreath { 0%,100%{transform:scale(1);opacity:.8} 50%{transform:scale(1.3);opacity:1} }
+
+  /* ── TRAIL ── */
+  .trail {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,200,0.7), transparent);
+    pointer-events: none;
+    z-index: 48;
+  }
+
+  /* ── STATUS ── */
+  #status-bar {
+    position: absolute;
+    bottom: env(safe-area-inset-bottom, 0px);
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 14px;
+    color: rgba(255,255,255,0.5);
+    z-index: 40;
+    padding: 20px 20px 28px;
+    background: linear-gradient(to top, rgba(0,0,0,0.4) 0%, transparent 100%);
+  }
+
+  /* ── HINT ── */
+  .throw-hint {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, calc(-50% + 52px));
+    color: rgba(255,255,255,0.22);
+    font-size: 11px;
+    z-index: 36;
+    pointer-events: none;
+    text-align: center;
+    display: none;
+    letter-spacing: 1.5px;
+  }
+</style>
+
+<div id="game">
+  <canvas id="field-canvas"></canvas>
+
+  <div id="hud">
+    <div class="badge" id="pseudo-badge">—</div>
+    <div class="badge" id="players-badge">0 joueur</div>
+    <div class="badge" id="timer-badge">3s</div>
+    <div class="badge" id="sim-badge">🤖 SIMULATION</div>
   </div>
+
+  <svg id="timer-ring" width="110" height="110" viewBox="0 0 110 110">
+    <circle cx="55" cy="55" r="48" fill="none" stroke="rgba(255,68,68,0.12)" stroke-width="5"/>
+    <circle id="timer-arc" cx="55" cy="55" r="48" fill="none" stroke="#ff4444" stroke-width="5"
+      stroke-linecap="round" stroke-dasharray="301.6" stroke-dashoffset="0"
+      transform="rotate(-90 55 55)"/>
+  </svg>
+
+  <div id="ball">⚽</div>
+  <div class="throw-hint" id="throw-hint">GLISSE VERS UN JOUEUR</div>
+  <div id="status-bar">En attente...</div>
+</div>
   `
 }
 
+/* ══════════════════════════════════════════════
+   DESSIN DU TERRAIN SUR CANVAS
+══════════════════════════════════════════════ */
+function drawField(canvas) {
+  const W = canvas.width = window.innerWidth
+  const H = canvas.height = window.innerHeight
+  const ctx = canvas.getContext('2d')
+
+  // Fond dégradé vert très sombre
+  const bg = ctx.createLinearGradient(0, 0, 0, H)
+  bg.addColorStop(0,   '#081508')
+  bg.addColorStop(0.5, '#0b1d0b')
+  bg.addColorStop(1,   '#081508')
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, W, H)
+
+  // Bandes de gazon alternées (très subtiles)
+  const stripeW = W / 10
+  ctx.save()
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.012)' : 'rgba(0,0,0,0.0)'
+    ctx.fillRect(i * stripeW, 0, stripeW, H)
+  }
+  ctx.restore()
+
+  const lc = 'rgba(255,255,255,0.18)'  // couleur des lignes
+  const lw = 1.8
+
+  ctx.strokeStyle = lc
+  ctx.lineWidth = lw
+  ctx.lineCap = 'round'
+
+  const pad = 22
+  const fw = W - pad * 2
+  const fh = H - pad * 2
+  const fx = pad, fy = pad
+
+  function line(x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+  }
+  function rect(x, y, w, h) {
+    ctx.strokeRect(x, y, w, h)
+  }
+  function arc(cx, cy, r, a1, a2) {
+    ctx.beginPath(); ctx.arc(cx, cy, r, a1, a2); ctx.stroke()
+  }
+  function dot(cx, cy, r) {
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2)
+    ctx.fillStyle = lc; ctx.fill()
+  }
+
+  // Cadre extérieur
+  rect(fx, fy, fw, fh)
+
+  // Ligne médiane
+  line(fx, fy + fh/2, fx + fw, fy + fh/2)
+
+  // Rond central
+  const cx = fx + fw/2, cy = fy + fh/2
+  arc(cx, cy, Math.min(fw, fh) * 0.13, 0, Math.PI * 2)
+  dot(cx, cy, 3)
+
+  // Surface de réparation haut
+  const bw = fw * 0.55, bh = fh * 0.18
+  const bx = fx + (fw - bw) / 2
+  rect(bx, fy, bw, bh)
+
+  // Petite surface haut
+  const sw = fw * 0.28, sh = fh * 0.09
+  const sx = fx + (fw - sw) / 2
+  rect(sx, fy, sw, sh)
+
+  // Surface de réparation bas
+  rect(bx, fy + fh - bh, bw, bh)
+  rect(sx, fy + fh - sh, sw, sh)
+
+  // Arc de cercle surfaces (haut et bas)
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(bx, fy + bh, bw, fh * 0.12)
+  ctx.clip()
+  arc(cx, fy + bh, Math.min(fw, fh) * 0.11, 0, Math.PI)
+  ctx.restore()
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(bx, fy + fh - bh - fh*0.12, bw, fh * 0.12)
+  ctx.clip()
+  arc(cx, fy + fh - bh, Math.min(fw, fh) * 0.11, Math.PI, Math.PI*2)
+  ctx.restore()
+
+  // Points de penalty
+  dot(cx, fy + fh * 0.13, 3)
+  dot(cx, fy + fh * 0.87, 3)
+
+  // Corners (arcs)
+  const cr = 12
+  ctx.beginPath(); ctx.arc(fx, fy, cr, 0, Math.PI/2); ctx.stroke()
+  ctx.beginPath(); ctx.arc(fx+fw, fy, cr, Math.PI/2, Math.PI); ctx.stroke()
+  ctx.beginPath(); ctx.arc(fx, fy+fh, cr, -Math.PI/2, 0); ctx.stroke()
+  ctx.beginPath(); ctx.arc(fx+fw, fy+fh, cr, Math.PI, -Math.PI/2); ctx.stroke()
+
+  // Buts (haut et bas)
+  const gw = fw * 0.22, gh = fh * 0.025
+  const gx = fx + (fw - gw) / 2
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+  ctx.lineWidth = 2.5
+  rect(gx, fy - gh, gw, gh)
+  rect(gx, fy + fh, gw, gh)
+
+  ctx.strokeStyle = lc
+  ctx.lineWidth = lw
+}
+
+/* ══════════════════════════════════════════════
+   PHYSIQUE DE LA BALLE
+══════════════════════════════════════════════ */
+class BallPhysics {
+  constructor(ballEl, onStop, onBounce) {
+    this.el = ballEl
+    this.onStop = onStop
+    this.onBounce = onBounce
+    this.x = 0; this.y = 0
+    this.vx = 0; this.vy = 0
+    this.R = 28
+    this.friction = 0.975
+    this.running = false
+    this.raf = null
+    this.bounceCount = 0
+    this.maxBounces = 3
+    this.stopped = false
+  }
+
+  launch(startX, startY, targetX, targetY, speed = 18) {
+    this.x = startX; this.y = startY
+    const dx = targetX - startX, dy = targetY - startY
+    const len = Math.sqrt(dx*dx + dy*dy) || 1
+    this.vx = (dx / len) * speed
+    this.vy = (dy / len) * speed
+    this.bounceCount = 0
+    this.stopped = false
+    this.running = true
+    this.el.style.display = 'block'
+    this._update()
+  }
+
+  _update() {
+    if (!this.running) return
+    const W = window.innerWidth, H = window.innerHeight
+    this.x += this.vx
+    this.y += this.vy
+    this.vx *= this.friction
+    this.vy *= this.friction
+
+    let bounced = false
+
+    // Rebonds sur les bords (sauf bas qui est le "sol" après maxBounces)
+    if (this.x - this.R < 0) {
+      this.x = this.R; this.vx = Math.abs(this.vx); bounced = true
+    } else if (this.x + this.R > W) {
+      this.x = W - this.R; this.vx = -Math.abs(this.vx); bounced = true
+    }
+    if (this.y - this.R < 0) {
+      this.y = this.R; this.vy = Math.abs(this.vy); bounced = true
+    } else if (this.y + this.R > H) {
+      this.y = H - this.R; this.vy = -Math.abs(this.vy); bounced = true
+    }
+
+    if (bounced) {
+      this.bounceCount++
+      if (this.onBounce) this.onBounce(this.bounceCount)
+    }
+
+    // Mise à jour position balle
+    this.el.style.left = (this.x - 28) + 'px'
+    this.el.style.top  = (this.y - 28) + 'px'
+
+    // Vitesse trop faible ou trop de rebonds → stop
+    const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy)
+    if (speed < 0.4 || (this.bounceCount >= this.maxBounces && speed < 2.5)) {
+      this.running = false
+      this.stopped = true
+      if (this.onStop) this.onStop(this.x, this.y)
+      return
+    }
+
+    this.raf = requestAnimationFrame(() => this._update())
+  }
+
+  stop() {
+    this.running = false
+    cancelAnimationFrame(this.raf)
+  }
+
+  setPos(x, y) {
+    this.x = x; this.y = y
+    this.el.style.left = (x - 28) + 'px'
+    this.el.style.top  = (y - 28) + 'px'
+  }
+}
+
+/* ══════════════════════════════════════════════
+   INIT JEU
+══════════════════════════════════════════════ */
 export function initGame(sb, myUser, myPseudo, simulationMode = false) {
-  let myId = myUser?.id || ('guest-' + Math.random().toString(36).substr(2, 6))
+  const myId = myUser?.id || ('guest-' + Math.random().toString(36).substr(2, 6))
   let myLat = null, myLng = null
   let players = {}
   let hasBall = false, ballHeld = false
   let throwTimer = null, throwStart = null
-  let channel = null
 
-  const game = document.getElementById('game')
-  const ballEl = document.getElementById('ball')
-  const pseudoBadge = document.getElementById('pseudo-badge')
+  const game       = document.getElementById('game')
+  const canvas     = document.getElementById('field-canvas')
+  const ballEl     = document.getElementById('ball')
+  const pseudoBadge  = document.getElementById('pseudo-badge')
   const playersBadge = document.getElementById('players-badge')
-  const timerBadge = document.getElementById('timer-badge')
-  const timerRing = document.getElementById('timer-ring')
-  const timerArc = document.getElementById('timer-arc')
-  const statusEl = document.getElementById('status-bar')
-  const simBadge = document.getElementById('sim-badge')
-  const throwHint = document.getElementById('throw-hint')
+  const timerBadge   = document.getElementById('timer-badge')
+  const timerRing    = document.getElementById('timer-ring')
+  const timerArc     = document.getElementById('timer-arc')
+  const statusEl     = document.getElementById('status-bar')
+  const simBadge     = document.getElementById('sim-badge')
+  const throwHint    = document.getElementById('throw-hint')
+
+  // Dessin terrain
+  drawField(canvas)
+  window.addEventListener('resize', () => drawField(canvas))
 
   pseudoBadge.textContent = myPseudo
   if (simulationMode) simBadge.style.display = 'block'
+
+  // Physique
+  const physics = new BallPhysics(ballEl,
+    (fx, fy) => {
+      // Balle arrêtée → joueur peut l'attraper
+      throwHint.style.display = 'block'
+      setStatus('⚽ Attrape la balle !')
+    },
+    (count) => {
+      // Flash au rebond
+      ballEl.style.filter = 'drop-shadow(0 0 20px rgba(255,255,128,0.9))'
+      setTimeout(() => { ballEl.style.filter = '' }, 120)
+    }
+  )
 
   function setStatus(msg) { statusEl.textContent = msg }
 
@@ -226,45 +471,44 @@ export function initGame(sb, myUser, myPseudo, simulationMode = false) {
       const el = document.createElement('div')
       el.className = 'player-dot-wrap'
       el.style.left = pos.x + 'px'
-      el.style.top = pos.y + 'px'
+      el.style.top  = pos.y + 'px'
       el.dataset.pid = p.id
-      el.innerHTML = `<div class="player-dot${p.sim ? ' sim-dot' : ''}"></div><div class="player-label">${p.pseudo}</div>`
-      el.addEventListener('pointerup', () => { if (hasBall) throwBallTo(p) })
+      el.innerHTML = `<div class="player-dot${p.sim?' sim':''}"></div><div class="player-label">${p.pseudo}</div>`
+      el.addEventListener('pointerup', () => { if (hasBall && physics.stopped) throwBallTo(p) })
       game.appendChild(el)
     })
     playersBadge.textContent = count === 0 ? '0 joueur' : count === 1 ? '1 joueur' : count + ' joueurs'
   }
 
-  function showBallAt(x, y) {
-    ballEl.style.display = 'block'
-    ballEl.style.left = (x - 28) + 'px'
-    ballEl.style.top = (y - 28) + 'px'
-  }
-
   function hideBall() {
     ballEl.style.display = 'none'
+    physics.stop()
     hasBall = false
     ballHeld = false
     throwHint.style.display = 'none'
     clearThrowTimer()
   }
 
+  /* Lance la balle depuis la position du joueur expéditeur */
   function receiveBall(fromId) {
     hasBall = true
-    const cx = window.innerWidth / 2, cy = window.innerHeight / 2
-    ballEl.className = 'incoming'
-    showBallAt(cx, cy)
-    setTimeout(() => { ballEl.classList.remove('incoming') }, 500)
     const from = players[fromId]
-    setStatus(from ? `⚽ Reçue de ${from.pseudo} — 3 secondes !` : '⚽ Tu as la balle !')
-    throwHint.style.display = 'block'
-    startThrowTimer()
+    let startX, startY
 
-    if (simulationMode) {
-      setTimeout(() => {
-        if (hasBall) setStatus('👆 Glisse la balle vers un joueur orange !')
-      }, 800)
+    if (from && myLat) {
+      const bearing = bearingDeg(myLat, myLng, from.latitude, from.longitude)
+      const edge = getEdgePosition(bearing)
+      startX = edge.x; startY = edge.y
+    } else {
+      startX = Math.random() * window.innerWidth
+      startY = 0
     }
+
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2
+    ballEl.style.display = 'block'
+    physics.launch(startX, startY, cx, cy, 16)
+    setStatus(from ? `⚽ Balle de ${from.pseudo} — attrape-la !` : '⚽ Tu as la balle !')
+    startThrowTimer()
   }
 
   function startThrowTimer() {
@@ -273,24 +517,22 @@ export function initGame(sb, myUser, myPseudo, simulationMode = false) {
     timerBadge.style.display = 'block'
     timerBadge.style.color = '#ff4444'
     timerRing.style.display = 'block'
-    const circumference = 276.5
+    const circ = 301.6
     throwTimer = setInterval(() => {
       const elapsed = Date.now() - throwStart
       const pct = Math.max(0, 1 - elapsed / THROW_TIME_LIMIT)
-      const remaining = Math.max(0, Math.ceil((THROW_TIME_LIMIT - elapsed) / 1000))
-      timerBadge.textContent = remaining + 's'
-      timerArc.style.strokeDashoffset = circumference * (1 - pct)
+      timerBadge.textContent = Math.max(0, Math.ceil((THROW_TIME_LIMIT - elapsed) / 1000)) + 's'
+      timerArc.style.strokeDashoffset = String(circ * (1 - pct))
       if (pct < 0.33) { timerBadge.style.color = '#ff2222'; timerArc.style.stroke = '#ff2222' }
       if (elapsed >= THROW_TIME_LIMIT) { clearThrowTimer(); disqualify() }
     }, 50)
   }
 
   function clearThrowTimer() {
-    clearInterval(throwTimer)
-    throwTimer = null
+    clearInterval(throwTimer); throwTimer = null
     timerBadge.style.display = 'none'
-    timerRing.style.display = 'none'
-    timerArc.style.strokeDashoffset = 0
+    timerRing.style.display  = 'none'
+    timerArc.style.strokeDashoffset = '0'
     timerArc.style.stroke = '#ff4444'
   }
 
@@ -301,82 +543,59 @@ export function initGame(sb, myUser, myPseudo, simulationMode = false) {
   }
 
   async function throwBallTo(targetPlayer) {
-    if (!hasBall) return
+    if (!hasBall || !physics.stopped) return
     clearThrowTimer()
     throwHint.style.display = 'none'
-    animateThrow(targetPlayer)
+
+    // Lancer depuis centre vers le bord côté target
+    const bearing = bearingDeg(myLat, myLng, targetPlayer.latitude, targetPlayer.longitude)
+    const endPos  = getEdgePosition(bearing)
+    const bx = physics.x, by = physics.y
+
+    // Petite animation de lancer
+    const dx = endPos.x - bx, dy = endPos.y - by
+    const dist = Math.sqrt(dx*dx + dy*dy)
+    physics.friction = 1.0   // lancer sans friction
+    physics.maxBounces = 999  // ne rebondit pas avant de partir
+    physics.vx = dx / dist * 22
+    physics.vy = dy / dist * 22
+    physics.running = true
+    physics.stopped = false
+    physics._update()
+
     setTimeout(async () => {
       hideBall()
+      physics.friction = 0.975
+      physics.maxBounces = 3
       setStatus(`✅ Envoyée à ${targetPlayer.pseudo} !`)
       if (simulationMode) {
-        // Simulation : la balle revient après 2s
-        setTimeout(() => {
-          receiveBall(targetPlayer.id)
-        }, 1800)
+        setTimeout(() => { receiveBall(targetPlayer.id) }, 1800)
       } else {
         await updateBallState({ status: 'flying', holder_id: targetPlayer.id, from_id: myId, target_id: targetPlayer.id, updated_at: new Date().toISOString() })
       }
-    }, 350)
+    }, 500)
   }
 
-  function animateThrow(targetPlayer) {
-    const bearing = bearingDeg(myLat, myLng, targetPlayer.latitude, targetPlayer.longitude)
-    const endPos = getEdgePosition(bearing)
-    const cx = window.innerWidth / 2, cy = window.innerHeight / 2
-    let t = 0
-    const trail = document.createElement('div')
-    trail.className = 'trail'
-    trail.style.cssText = `width:28px;height:28px;left:${cx-14}px;top:${cy-14}px;position:absolute;`
-    game.appendChild(trail)
-    const anim = setInterval(() => {
-      t += 0.065
-      const x = cx + (endPos.x - cx) * t
-      const y = cy + (endPos.y - cy) * t
-      trail.style.left = (x-14) + 'px'
-      trail.style.top = (y-14) + 'px'
-      trail.style.opacity = String(Math.max(0, 1-t))
-      if (t >= 1) { clearInterval(anim); trail.remove() }
-    }, 16)
-  }
+  // ── Drag de la balle ──
+  let dragOffX = 0, dragOffY = 0
 
-  async function updateBallState(data) {
-    if (!sb) return
-    await sb.from('ball_state').update({ ...data, updated_at: new Date().toISOString() }).eq('id', 'current')
-  }
-
-  async function updatePosition() {
-    if (!myId || myLat === null || simulationMode || !sb) return
-    await sb.from('ball_players').upsert({ id: myId, pseudo: myPseudo, latitude: myLat, longitude: myLng, last_seen: new Date().toISOString(), user_id: myUser?.id || null })
-  }
-
-  function subscribeRealtime() {
-    if (!sb || simulationMode) return
-    channel = sb.channel('ball-game-v2')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ball_players' }, payload => {
-        if (payload.new?.id) { players[payload.new.id] = payload.new; renderPlayers() }
-        if (payload.eventType === 'DELETE' && payload.old?.id) { delete players[payload.old.id]; renderPlayers() }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ball_state' }, payload => {
-        const state = payload.new
-        if (!state) return
-        if (state.status === 'flying' && state.holder_id === myId && state.from_id !== myId) receiveBall(state.from_id)
-        if (state.status === 'idle' && hasBall) { hideBall(); setStatus('En attente de la balle...') }
-      })
-      .subscribe()
-  }
-
-  // Drag de la balle
   ballEl.addEventListener('pointerdown', e => {
-    if (!hasBall) return
+    if (!hasBall || !physics.stopped) return
+    physics.stop()
     ballHeld = true
     ballEl.setPointerCapture(e.pointerId)
     ballEl.classList.add('held')
+    throwHint.style.display = 'none'
+    dragOffX = e.clientX - physics.x
+    dragOffY = e.clientY - physics.y
     e.preventDefault()
   })
 
   ballEl.addEventListener('pointermove', e => {
     if (!ballHeld) return
-    showBallAt(e.clientX, e.clientY)
+    const nx = e.clientX - dragOffX
+    const ny = e.clientY - dragOffY
+    physics.setPos(nx, ny)
     e.preventDefault()
   })
 
@@ -384,17 +603,27 @@ export function initGame(sb, myUser, myPseudo, simulationMode = false) {
     if (!ballHeld) return
     ballHeld = false
     ballEl.classList.remove('held')
-    const x = e.clientX, y = e.clientY
+    const x = physics.x, y = physics.y
     const W = window.innerWidth, H = window.innerHeight
     const margin = 72
+
     if (x < margin || x > W - margin || y < margin || y > H - margin) {
       const dx = x - W/2, dy = y - H/2
       const bearing = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360
       const target = findNearestInDirection(bearing)
-      if (target) { throwBallTo(target) }
-      else { setStatus('Aucun joueur dans cette direction !'); showBallAt(W/2, H/2) }
+      if (target) {
+        physics.stopped = true
+        throwBallTo(target)
+      } else {
+        setStatus('Aucun joueur dans cette direction !')
+        physics.stopped = true
+        throwHint.style.display = 'block'
+      }
     } else {
-      showBallAt(x, y)
+      // Repositionner au centre si pas lancé
+      physics.stopped = true
+      throwHint.style.display = 'block'
+      setStatus('⚽ Lance la balle vers un joueur !')
     }
   })
 
@@ -411,35 +640,55 @@ export function initGame(sb, myUser, myPseudo, simulationMode = false) {
     return best
   }
 
-  // Init géoloc
+  async function updateBallState(data) {
+    if (!sb) return
+    await sb.from('ball_state').update({ ...data, updated_at: new Date().toISOString() }).eq('id', 'current')
+  }
+
+  async function updatePosition() {
+    if (!myId || myLat === null || simulationMode || !sb) return
+    await sb.from('ball_players').upsert({ id: myId, pseudo: myPseudo, latitude: myLat, longitude: myLng, last_seen: new Date().toISOString(), user_id: myUser?.id || null })
+  }
+
+  function subscribeRealtime() {
+    if (!sb || simulationMode) return
+    sb.channel('ball-game-v3')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ball_players' }, payload => {
+        if (payload.new?.id) { players[payload.new.id] = payload.new; renderPlayers() }
+        if (payload.eventType === 'DELETE' && payload.old?.id) { delete players[payload.old.id]; renderPlayers() }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ball_state' }, payload => {
+        const state = payload.new
+        if (!state) return
+        if (state.status === 'flying' && state.holder_id === myId && state.from_id !== myId) receiveBall(state.from_id)
+        if (state.status === 'idle' && hasBall) { hideBall(); setStatus('En attente de la balle...') }
+      })
+      .subscribe()
+  }
+
   const getPos = () => new Promise(resolve => {
     if (!navigator.geolocation) { resolve({ lat: 43.2965, lng: 5.3698 }); return }
     navigator.geolocation.getCurrentPosition(
       p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => resolve({ lat: 43.2965 + (Math.random()-0.5)*0.0003, lng: 5.3698 + (Math.random()-0.5)*0.0003 }),
+      () => resolve({ lat: 43.2965 + (Math.random()-.5)*.0003, lng: 5.3698 + (Math.random()-.5)*.0003 }),
       { timeout: 6000, enableHighAccuracy: true }
     )
   })
 
   async function start() {
     const pos = await getPos()
-    myLat = pos.lat
-    myLng = pos.lng
+    myLat = pos.lat; myLng = pos.lng
 
     if (simulationMode) {
       const fakes = getFakePlayers(myLat, myLng)
       fakes.forEach(p => { players[p.id] = p })
       renderPlayers()
-      setStatus('🤖 Simulation — tu as la balle !')
       setTimeout(() => {
-        hasBall = true
-        showBallAt(window.innerWidth/2, window.innerHeight/2)
-        ballEl.className = 'incoming'
-        setTimeout(() => ballEl.classList.remove('incoming'), 500)
-        throwHint.style.display = 'block'
-        startThrowTimer()
-        setStatus('⚽ Tu as la balle ! Lance-la vers un joueur orange !')
-      }, 800)
+        // Simule réception depuis Marco (nord-est)
+        const marco = players['sim-1']
+        receiveBall(marco.id)
+        setStatus('⚽ Balle de Marco — attrape-la !')
+      }, 700)
       return
     }
 
@@ -449,10 +698,10 @@ export function initGame(sb, myUser, myPseudo, simulationMode = false) {
 
     const { data: state } = await sb.from('ball_state').select('*').eq('id', 'current').single()
     if (state && (state.status === 'idle' || !state.holder_id)) {
-      hasBall = true
-      showBallAt(window.innerWidth/2, window.innerHeight/2)
-      setStatus('⚽ Tu as la balle ! Lance-la !')
-      startThrowTimer()
+      setTimeout(() => {
+        receiveBall('system')
+        setStatus('⚽ Tu as la balle !')
+      }, 500)
       await updateBallState({ status: 'flying', holder_id: myId, from_id: 'system', target_id: myId })
     } else {
       setStatus('En attente de la balle...')
