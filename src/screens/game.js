@@ -1,7 +1,7 @@
 import { playKickReceive, playKickLaunch, unlockAudio } from '../sounds.js'
 
 const RADIUS_METERS = 999999
-const THROW_TIME_LIMIT = 3000
+const THROW_TIME_LIMIT = 10000
 const HALF_CIRCLE_R = 90
 
 function degToRad(d) { return d * Math.PI / 180 }
@@ -497,7 +497,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   function clearThrowTimer(){
     clearInterval(throwTimer);throwTimer=null;timerWrap.style.display='none'
     timerArc.style.strokeDashoffset='0';timerArc.style.stroke='#ff4444'
-    timerNumber.textContent='3';timerNumber.style.color='#fff'
+    timerNumber.textContent='10';timerNumber.style.color='#fff'
   }
 
   function disqualify(){
