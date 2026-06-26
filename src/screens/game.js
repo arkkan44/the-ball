@@ -330,6 +330,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   const statusEl      = document.getElementById('status-bar')
   const simBadge      = document.getElementById('sim-badge')
   const throwHint     = document.getElementById('throw-hint')
+  const meHolder      = document.getElementById('me-holder')
   const disqualifEl   = document.getElementById('disqualif')
   const lobbyScreen   = document.getElementById('lobby-screen')
   const lobbyMsg      = document.getElementById('lobby-msg')
