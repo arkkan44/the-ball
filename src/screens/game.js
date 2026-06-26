@@ -444,20 +444,31 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   /* ══ ATTRIBUTION BALLE AU HASARD ══ */
   async function assignBallRandomly(){
     const allPlayers=[myId,...Object.values(players).filter(p=>p.id!==myId).map(p=>p.id)]
-    // Le joueur avec l'ID le plus petit (lexicographique) décide — évite les conflits
     const idsorted=[...allPlayers].sort()
     const isLeader = idsorted[0]===myId
 
     if(isLeader){
-      // Je suis le leader → je tire au sort et j'écris dans Supabase
       const winner = allPlayers[Math.floor(Math.random()*allPlayers.length)]
       ballHolderId=winner
+      renderPlayers()
       await updateBallState({status:'flying',holder_id:winner,from_id:'system',target_id:winner,updated_at:new Date().toISOString()})
       if(winner===myId){
-        setTimeout(()=>receiveBall('system'),300)
+        setTimeout(()=>receiveBall('system'),400)
+      } else {
+        setStatus('⏳ La balle part chez '+( Object.values(players).find(p=>p.id===winner)?.pseudo||'un joueur')+'...')
       }
+    } else {
+      // Non-leader : attend le realtime — mais si rien après 2s, relit le state
+      setTimeout(async()=>{
+        if(hasBall)return
+        const{data:s}=await sb.from('ball_state').select('*').eq('id','current').single()
+        if(!s)return
+        ballHolderId=s.holder_id
+        renderPlayers()
+        if(s.holder_id===myId)receiveBall(s.from_id||'system')
+        else setStatus('⏳ La balle est chez un autre joueur...')
+      },2000)
     }
-    // Les autres attendent le realtime qui leur enverra la balle
   }
 
   /* ══ JOUEURS SUR LE TERRAIN ══ */
@@ -649,8 +660,13 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
       })
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'ball_state'},payload=>{
         const s=payload.new;if(!s)return
-        if(s.status==='flying'){ballHolderId=s.holder_id;renderPlayers()}
-        if(s.status==='flying'&&s.holder_id===myId&&s.from_id!==myId){receiveBall(s.from_id||'system')}
+        if(s.status==='flying'){
+          ballHolderId=s.holder_id
+          renderPlayers()
+          if(s.holder_id===myId&&!hasBall){
+            receiveBall(s.from_id||'system')
+          }
+        }
         if(s.status==='flying'&&s.holder_id!==myId&&hasBall){hideBall();setStatus('⏳ Balle chez un autre joueur...')}
         if(s.status==='idle'&&hasBall){hideBall();setStatus('En attente de la balle...')}
       })
@@ -687,9 +703,6 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
     setInterval(()=>updatePosition(),5000)
     renderLobby()
     setStatus('Lobby — en attente des joueurs')
-
-    // Reset ball_state pour cette session
-    await updateBallState({status:'idle',holder_id:null,from_id:null,target_id:null})
   }
 
   start()
