@@ -2,7 +2,7 @@ import { playKickReceive, playKickLaunch, unlockAudio } from '../sounds.js'
 
 const RADIUS_METERS = 999999
 const THROW_TIME_LIMIT = 10000
-const HALF_CIRCLE_R = 130
+const HALF_CIRCLE_R = 60
 
 function degToRad(d) { return d * Math.PI / 180 }
 function distanceMeters(lat1,lng1,lat2,lng2) {
@@ -226,6 +226,30 @@ export function renderGame() {
   .player-dot.sim{background:#ff9f4a;box-shadow:0 0 10px rgba(255,159,74,0.6)}
   .player-label{background:rgba(0,0,0,0.72);border-radius:12px;padding:4px 10px;font-size:12px;color:rgba(255,255,255,0.92);white-space:nowrap;border:0.5px solid rgba(255,255,255,0.12);text-align:center;line-height:1.6}
   .player-dist{font-size:10px;color:rgba(255,220,80,0.85);display:block}
+  /* Surbrillance joueur avec balle */
+  .player-dot.holder{
+    background:#ffdd00 !important;
+    box-shadow:0 0 0 3px rgba(255,220,0,0.6),0 0 20px rgba(255,220,0,0.9) !important;
+    width:24px !important;height:24px !important;
+    animation:holderPulse 0.8s ease-in-out infinite !important;
+  }
+  @keyframes holderPulse{0%,100%{box-shadow:0 0 0 3px rgba(255,220,0,0.6),0 0 20px rgba(255,220,0,0.8)}50%{box-shadow:0 0 0 8px rgba(255,220,0,0.2),0 0 35px rgba(255,220,0,1)}}
+  .holder-label{
+    background:rgba(255,200,0,0.2) !important;
+    border-color:rgba(255,220,0,0.5) !important;
+    color:#ffdd00 !important;
+    font-weight:600;
+  }
+  /* Moi-même en surbrillance si j'ai la balle */
+  #me-holder{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:80px;height:80px;border-radius:50%;
+    border:3px solid rgba(255,220,0,0.7);
+    box-shadow:0 0 30px rgba(255,220,0,0.5),inset 0 0 30px rgba(255,220,0,0.1);
+    z-index:22;pointer-events:none;display:none;
+    animation:meHolderPulse 1s ease-in-out infinite;
+  }
+  @keyframes meHolderPulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:0.7}50%{transform:translate(-50%,-50%) scale(1.1);opacity:1}}
   @keyframes pB{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.3);opacity:1}}
 
   /* ── STATUS ── */
@@ -275,6 +299,7 @@ export function renderGame() {
     <button class="dq-btn" id="dq-retry">↩ REVENIR AU JEU</button>
   </div>
 
+  <div id="me-holder"></div>
   <div id="ball">⚽</div>
   <div class="throw-hint" id="throw-hint">GLISSE VERS UN JOUEUR</div>
   <div id="status-bar">Connexion…</div>
@@ -289,6 +314,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   let players={}, hasBall=false, ballHeld=false
   let throwTimer=null, throwStart=null
   let playerScreenPositions={}
+  let ballHolderId=null  // id du joueur qui a la balle (pour surbrillance)
   let iReady=false, gameStarted=false
 
   const game          = document.getElementById('game')
@@ -425,6 +451,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
     if(isLeader){
       // Je suis le leader → je tire au sort et j'écris dans Supabase
       const winner = allPlayers[Math.floor(Math.random()*allPlayers.length)]
+      ballHolderId=winner
       await updateBallState({status:'flying',holder_id:winner,from_id:'system',target_id:winner,updated_at:new Date().toISOString()})
       if(winner===myId){
         setTimeout(()=>receiveBall('system'),300)
@@ -446,12 +473,17 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
       const distLabel=distM<1000?Math.round(distM)+' m':(distM/1000).toFixed(1)+' km'
       const pos=getEdgePosition(bearingDeg(myLat,myLng,p.latitude,p.longitude))
       playerScreenPositions[p.id]={pos,player:p}
+      const isHolder=p.id===ballHolderId
       const el=document.createElement('div')
-      el.className='player-dot-wrap'
+      el.className='player-dot-wrap'+(isHolder?' has-ball':'')
       el.style.left=pos.x+'px';el.style.top=pos.y+'px'
       el.dataset.pid=p.id
-      el.innerHTML=`<div class="player-dot${p.sim?' sim':''}"></div><div class="player-label">${p.pseudo}<span class="player-dist">${distLabel}</span></div>`
-      el.addEventListener('pointerup',()=>{if(hasBall)sendBallTo(p,playerScreenPositions[p.id].pos)})
+      el.innerHTML=`
+        <div class="player-dot${p.sim?' sim':''}${isHolder?' holder':''}"></div>
+        <div class="player-label${isHolder?' holder-label':''}">
+          ${isHolder?'⚽ ':''}${p.pseudo}
+          <span class="player-dist">${distLabel}</span>
+        </div>`
       game.appendChild(el)
     })
     playersBadge.textContent=count===0?'0 joueur':count===1?'1 joueur':count+' joueurs'
@@ -462,6 +494,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   function hideBall(){
     ballEl.style.display='none';physics.stop()
     hasBall=false;ballHeld=false;throwHint.style.display='none'
+    meHolder.style.display='none'
     clearThrowTimer()
     const ctx=overlayCanvas.getContext('2d');overlayCanvas.width=window.innerWidth;overlayCanvas.height=window.innerHeight;ctx.clearRect(0,0,window.innerWidth,window.innerHeight)
     renderPlayers()
@@ -469,6 +502,8 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
 
   function receiveBall(fromId){
     hasBall=true
+    ballHolderId=myId
+    meHolder.style.display='block'
     playKickReceive()
     const from=players[fromId]
     let sx,sy
@@ -535,6 +570,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   }
 
   function sendBallTo(targetPlayer,tPos){
+    ballHolderId=targetPlayer.id
     playKickLaunch();clearThrowTimer();throwHint.style.display='none'
     const ctx=overlayCanvas.getContext('2d');overlayCanvas.width=window.innerWidth;overlayCanvas.height=window.innerHeight;ctx.clearRect(0,0,window.innerWidth,window.innerHeight)
     const dx=tPos.x-physics.x,dy=tPos.y-physics.y,len=Math.sqrt(dx*dx+dy*dy)||1
@@ -613,6 +649,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
       })
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'ball_state'},payload=>{
         const s=payload.new;if(!s)return
+        if(s.status==='flying'){ballHolderId=s.holder_id;renderPlayers()}
         if(s.status==='flying'&&s.holder_id===myId&&s.from_id!==myId){receiveBall(s.from_id||'system')}
         if(s.status==='flying'&&s.holder_id!==myId&&hasBall){hideBall();setStatus('⏳ Balle chez un autre joueur...')}
         if(s.status==='idle'&&hasBall){hideBall();setStatus('En attente de la balle...')}
