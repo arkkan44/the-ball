@@ -300,6 +300,7 @@ export function renderGame() {
   </div>
 
   <div id="me-holder"></div>
+  <div id="debug-log" style="position:absolute;bottom:80px;left:0;right:0;z-index:999;padding:8px 16px;font-size:10px;color:rgba(0,255,0,0.7);font-family:monospace;text-align:center;pointer-events:none;max-height:80px;overflow:hidden"></div>
   <div id="ball">⚽</div>
   <div class="throw-hint" id="throw-hint">GLISSE VERS UN JOUEUR</div>
   <div id="status-bar">Connexion…</div>
@@ -345,6 +346,14 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   document.addEventListener('pointerdown',()=>unlockAudio(),{once:true})
 
   function setStatus(msg){statusEl.textContent=msg}
+  function dbg(msg){
+    const el=document.getElementById('debug-log')
+    if(!el)return
+    const line=document.createElement('div')
+    line.textContent=new Date().toISOString().substr(11,8)+' '+msg
+    el.appendChild(line)
+    if(el.children.length>4)el.removeChild(el.children[0])
+  }
 
   /* ══ PHYSIQUE ══ */
   const physics = new BallPhysics(ballEl,
@@ -447,6 +456,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
     const idsorted=[...allPlayers].sort()
     const isLeader = idsorted[0]===myId
 
+    dbg('assignBall isLeader='+isLeader+' players='+allPlayers.length)
     if(isLeader){
       const winner = allPlayers[Math.floor(Math.random()*allPlayers.length)]
       ballHolderId=winner
@@ -512,6 +522,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   }
 
   function receiveBall(fromId){
+    dbg('receiveBall from='+fromId)
     hasBall=true
     ballHolderId=myId
     meHolder.style.display='block'
@@ -660,6 +671,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
       })
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'ball_state'},payload=>{
         const s=payload.new;if(!s)return
+        dbg('ball_state: '+s.status+' holder='+( s.holder_id||'none').substr(0,6))
         if(s.status==='flying'){
           ballHolderId=s.holder_id
           renderPlayers()
@@ -693,6 +705,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
       return
     }
 
+    dbg('start() myId='+myId.substr(0,6))
     await updatePosition()
     // Charge les joueurs déjà présents
     const since=new Date(Date.now()-30000).toISOString()
@@ -701,6 +714,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
 
     subscribeRealtime()
     setInterval(()=>updatePosition(),5000)
+    dbg('realtime subscribed, players='+Object.keys(players).length)
     renderLobby()
     setStatus('Lobby — en attente des joueurs')
   }
