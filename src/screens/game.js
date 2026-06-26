@@ -2,7 +2,7 @@ import { playKickReceive, playKickLaunch, unlockAudio } from '../sounds.js'
 
 const RADIUS_METERS = 999999
 const THROW_TIME_LIMIT = 10000
-const HALF_CIRCLE_R = 90
+const HALF_CIRCLE_R = 130
 
 function degToRad(d) { return d * Math.PI / 180 }
 function distanceMeters(lat1,lng1,lat2,lng2) {
@@ -451,7 +451,7 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
       el.style.left=pos.x+'px';el.style.top=pos.y+'px'
       el.dataset.pid=p.id
       el.innerHTML=`<div class="player-dot${p.sim?' sim':''}"></div><div class="player-label">${p.pseudo}<span class="player-dist">${distLabel}</span></div>`
-      el.addEventListener('pointerup',()=>{if(hasBall&&physics.stopped)throwBallToPlayer(p)})
+      el.addEventListener('pointerup',()=>{if(hasBall)sendBallTo(p,playerScreenPositions[p.id].pos)})
       game.appendChild(el)
     })
     playersBadge.textContent=count===0?'0 joueur':count===1?'1 joueur':count+' joueurs'
@@ -512,8 +512,26 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   function throwBallToPlayer(targetPlayer){
     if(!hasBall)return
     const info=playerScreenPositions[targetPlayer.id];if(!info)return
-    if(isInHalfCircle(physics.x,physics.y,info.pos))sendBallTo(targetPlayer,info.pos)
-    else bounceBack()
+    sendBallTo(targetPlayer,info.pos)
+  }
+
+  // Trouve le joueur le plus proche dans la direction du lancer
+  function findTargetInDirection(vx,vy){
+    // Direction normalisée du lancer
+    const len=Math.sqrt(vx*vx+vy*vy)||1
+    const nx=vx/len,ny=vy/len
+    let best=null,bestScore=-1
+    for(const[id,info]of Object.entries(playerScreenPositions)){
+      const px=info.pos.x,py=info.pos.y
+      // Vecteur balle → joueur
+      const dx=px-physics.x,dy=py-physics.y
+      const dlen=Math.sqrt(dx*dx+dy*dy)||1
+      // Alignement (produit scalaire normalisé)
+      const dot=(dx/dlen)*nx+(dy/dlen)*ny
+      // Score = alignement (>0.5 = moins de 60° d écart)
+      if(dot>0.5&&dot>bestScore){bestScore=dot;best=info.player}
+    }
+    return best
   }
 
   function sendBallTo(targetPlayer,tPos){
@@ -557,18 +575,25 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   ballEl.addEventListener('pointerup',e=>{
     if(!ballHeld)return
     ballHeld=false;ballEl.classList.remove('held')
-    const bx=physics.x,by=physics.y
-    let matched=null
-    for(const[id,info]of Object.entries(playerScreenPositions)){if(isInHalfCircle(bx,by,info.pos)){matched=info.player;break}}
-    if(matched){physics.stopped=true;sendBallTo(matched,playerScreenPositions[matched.id].pos)}
-    else{
-      const spd=Math.sqrt(dragVx*dragVx+dragVy*dragVy)
-      if(spd>2){
-        physics.friction=0.973;physics.maxBounces=3;physics.freeThrow=false
-        physics.vx=dragVx;physics.vy=dragVy;physics.bounceCount=0
-        physics.stopped=false;physics.running=true;physics._tick()
-        setStatus('❌ Hors zone — rattrape !')
-      } else {physics.stopped=true;throwHint.style.display='block';setStatus('⚽ Lance vers une zone verte !')}
+    const spd=Math.sqrt(dragVx*dragVx+dragVy*dragVy)
+
+    if(spd>1.5){
+      // On a un geste → cherche un joueur dans la direction du lancer
+      const target=findTargetInDirection(dragVx,dragVy)
+      if(target){
+        physics.stopped=true
+        sendBallTo(target,playerScreenPositions[target.id].pos)
+        return
+      }
+      // Pas de joueur dans cette direction → rebond
+      physics.friction=0.973;physics.maxBounces=3;physics.freeThrow=false
+      physics.vx=dragVx;physics.vy=dragVy;physics.bounceCount=0
+      physics.stopped=false;physics.running=true;physics._tick()
+      setStatus('❌ Aucun joueur dans cette direction !')
+    } else {
+      // Pas de geste → balle posée, attente
+      physics.stopped=true;throwHint.style.display='block'
+      setStatus('⚽ Glisse vers un joueur !')
     }
   })
 
