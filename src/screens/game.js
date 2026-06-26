@@ -33,6 +33,22 @@ function getFakePlayers(myLat,myLng) {
   ]
 }
 
+// Repositionne tous les joueurs aléatoirement autour de myLat/myLng
+function shufflePlayerPositions(players, myLat, myLng) {
+  const angles = []
+  // Génère des angles bien espacés pour éviter deux joueurs au même endroit
+  const base = Math.random() * 360
+  const count = Object.keys(players).length
+  Object.values(players).forEach((p, i) => {
+    // Angle de base réparti + perturbation aléatoire
+    const angle = (base + (360 / count) * i + (Math.random() - 0.5) * 40) % 360
+    const rad = angle * Math.PI / 180
+    const dist = 0.0003 + Math.random() * 0.0004  // entre ~30m et ~70m
+    p.latitude  = myLat + Math.cos(rad) * dist
+    p.longitude = myLng + Math.sin(rad) * dist
+  })
+}
+
 /* ══ TERRAIN ══ */
 function drawField(canvas) {
   const W=canvas.width=window.innerWidth,H=canvas.height=window.innerHeight
@@ -528,6 +544,12 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
     ballHolderId=myId
     meHolder.style.display='block'
     playKickReceive()
+    // Flash de repositionnement des joueurs
+    document.querySelectorAll('.player-dot-wrap').forEach(el=>{
+      el.style.transition='opacity 0.3s'
+      el.style.opacity='0'
+      setTimeout(()=>{el.style.opacity='1'},350)
+    })
     const from=players[fromId]
     let sx,sy
     if(from&&myLat){const edge=getEdgePosition(bearingDeg(myLat,myLng,from.latitude,from.longitude));sx=edge.x;sy=edge.y}
@@ -599,6 +621,8 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
     const dx=tPos.x-physics.x,dy=tPos.y-physics.y,len=Math.sqrt(dx*dx+dy*dy)||1
     physics.throwFree(physics.x,physics.y,dx/len*22,dy/len*22)
     setTimeout(async()=>{
+      // Repositionner les joueurs à chaque envoi réussi
+      if(simulationMode) shufflePlayerPositions(players, myLat, myLng)
       hideBall();setStatus(`✅ Envoyée à ${targetPlayer.pseudo} !`)
       if(simulationMode)setTimeout(()=>receiveBall(targetPlayer.id),1800)
       else await updateBallState({status:'flying',holder_id:targetPlayer.id,from_id:myId,target_id:targetPlayer.id,updated_at:new Date().toISOString()})
