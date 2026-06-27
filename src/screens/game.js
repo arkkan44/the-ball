@@ -2,7 +2,7 @@ import { playKickReceive, playKickLaunch, unlockAudio } from '../sounds.js'
 
 const RADIUS_METERS = 999999
 const THROW_TIME_LIMIT = 10000
-const HALF_CIRCLE_R = 60
+const TARGET_R = 55  // rayon cercle cible en px
 
 function degToRad(d) { return d * Math.PI / 180 }
 function distanceMeters(lat1,lng1,lat2,lng2) {
@@ -82,35 +82,33 @@ function drawField(canvas) {
   ctx.strokeRect(gx,fy-gh,gw,gh);ctx.strokeRect(gx,fy+fh,gw,gh)
 }
 
-function drawHalfCircles(overlayCanvas,playerPositions) {
-  const W=overlayCanvas.width=window.innerWidth,H=overlayCanvas.height=window.innerHeight
-  const ctx=overlayCanvas.getContext('2d');ctx.clearRect(0,0,W,H)
-  const cx=W/2,cy=H/2
-  Object.values(playerPositions).forEach(({pos,player})=>{
-    const px=pos.x,py=pos.y
-    const inDx=cx-px,inDy=cy-py,inLen=Math.sqrt(inDx*inDx+inDy*inDy)
-    const inNx=inDx/inLen,inNy=inDy/inLen
-    const inwardAngle=Math.atan2(inNy,inNx)
-    const a1=inwardAngle-Math.PI/2,a2=inwardAngle+Math.PI/2
-    ctx.beginPath();ctx.moveTo(px,py);ctx.arc(px,py,HALF_CIRCLE_R,a1,a2);ctx.closePath()
-    ctx.fillStyle=player.sim?'rgba(255,159,74,0.15)':'rgba(127,255,127,0.12)';ctx.fill()
-    ctx.beginPath();ctx.arc(px,py,HALF_CIRCLE_R,a1,a2)
-    ctx.setLineDash([6,4]);ctx.strokeStyle=player.sim?'rgba(255,159,74,0.7)':'rgba(127,255,127,0.65)';ctx.lineWidth=2;ctx.stroke()
-    const perpX=-inNy,perpY=inNx
-    ctx.beginPath();ctx.moveTo(px+perpX*HALF_CIRCLE_R,py+perpY*HALF_CIRCLE_R);ctx.lineTo(px-perpX*HALF_CIRCLE_R,py-perpY*HALF_CIRCLE_R)
-    ctx.setLineDash([4,3]);ctx.strokeStyle=player.sim?'rgba(255,159,74,0.4)':'rgba(127,255,127,0.35)';ctx.lineWidth=1.5;ctx.stroke()
-    ctx.setLineDash([])
+function drawTargetCircles(overlayCanvas, playerPositions) {
+  const W=overlayCanvas.width=window.innerWidth, H=overlayCanvas.height=window.innerHeight
+  const ctx=overlayCanvas.getContext('2d'); ctx.clearRect(0,0,W,H)
+  Object.values(playerPositions).forEach(({pos, player})=>{
+    const px=pos.x, py=pos.y
+    const color = player.sim ? '255,159,74' : '127,255,127'
+    // Remplissage
+    ctx.beginPath(); ctx.arc(px,py,TARGET_R,0,Math.PI*2)
+    ctx.fillStyle=`rgba(${color},0.12)`; ctx.fill()
+    // Contour plein lumineux
+    ctx.beginPath(); ctx.arc(px,py,TARGET_R,0,Math.PI*2)
+    ctx.strokeStyle=`rgba(${color},0.85)`; ctx.lineWidth=2.5
+    ctx.setLineDash([]); ctx.stroke()
+    // Croix centrale (viseur)
+    const cr=10
+    ctx.strokeStyle=`rgba(${color},0.6)`; ctx.lineWidth=1.5
+    ctx.beginPath(); ctx.moveTo(px-cr,py); ctx.lineTo(px+cr,py); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(px,py-cr); ctx.lineTo(px,py+cr); ctx.stroke()
+    // Petit cercle intérieur
+    ctx.beginPath(); ctx.arc(px,py,8,0,Math.PI*2)
+    ctx.strokeStyle=`rgba(${color},0.5)`; ctx.lineWidth=1; ctx.stroke()
   })
 }
 
-function isInHalfCircle(bx,by,playerPos) {
-  const W=window.innerWidth,H=window.innerHeight,cx=W/2,cy=H/2
-  const inDx=cx-playerPos.x,inDy=cy-playerPos.y,inLen=Math.sqrt(inDx*inDx+inDy*inDy)
-  const inNx=inDx/inLen,inNy=inDy/inLen
-  const dx=bx-playerPos.x,dy=by-playerPos.y
-  const dist=Math.sqrt(dx*dx+dy*dy)
-  if(dist>HALF_CIRCLE_R)return false
-  return dx*inNx+dy*inNy>=0
+function isInTargetCircle(bx, by, playerPos) {
+  const dx=bx-playerPos.x, dy=by-playerPos.y
+  return Math.sqrt(dx*dx+dy*dy) <= TARGET_R
 }
 
 /* ══ PHYSIQUE ══ */
@@ -596,20 +594,21 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   }
 
   // Trouve le joueur le plus proche dans la direction du lancer
+  // Cherche le joueur dont le cercle cible est traversé par la trajectoire du lancer
   function findTargetInDirection(vx,vy){
-    // Direction normalisée du lancer
-    const len=Math.sqrt(vx*vx+vy*vy)||1
-    const nx=vx/len,ny=vy/len
-    let best=null,bestScore=-1
+    const R=TARGET_R
+    const bx=physics.x, by=physics.y
+    let best=null, bestDist=Infinity
     for(const[id,info]of Object.entries(playerScreenPositions)){
-      const px=info.pos.x,py=info.pos.y
-      // Vecteur balle → joueur
-      const dx=px-physics.x,dy=py-physics.y
-      const dlen=Math.sqrt(dx*dx+dy*dy)||1
-      // Alignement (produit scalaire normalisé)
-      const dot=(dx/dlen)*nx+(dy/dlen)*ny
-      // Score = alignement (>0.5 = moins de 60° d écart)
-      if(dot>0.5&&dot>bestScore){bestScore=dot;best=info.player}
+      const px=info.pos.x, py=info.pos.y
+      // Distance minimale entre la droite de lancer et le centre du cercle cible
+      const len2=vx*vx+vy*vy
+      if(len2<0.001)continue
+      const t=((px-bx)*vx+(py-by)*vy)/len2
+      if(t<0)continue  // joueur derrière soi
+      const closestX=bx+vx*t, closestY=by+vy*t
+      const dist=Math.sqrt((closestX-px)**2+(closestY-py)**2)
+      if(dist<=R&&dist<bestDist){bestDist=dist;best=info.player}
     }
     return best
   }
@@ -659,22 +658,36 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
     if(!ballHeld)return
     ballHeld=false;ballEl.classList.remove('held')
     const spd=Math.sqrt(dragVx*dragVx+dragVy*dragVy)
+    const playerList=Object.values(playerScreenPositions)
 
     if(spd>1.5){
-      // On a un geste → cherche un joueur dans la direction du lancer
+      // Cherche le meilleur joueur dans la direction du geste
       const target=findTargetInDirection(dragVx,dragVy)
       if(target){
         physics.stopped=true
         sendBallTo(target,playerScreenPositions[target.id].pos)
         return
       }
-      // Pas de joueur dans cette direction → rebond
-      physics.friction=0.973;physics.maxBounces=3;physics.freeThrow=false
+      // Pas de joueur dans la direction exacte
+      // Si un seul joueur présent → on lui envoie quand même
+      if(playerList.length===1){
+        const onlyOne=playerList[0].player
+        physics.stopped=true
+        sendBallTo(onlyOne,playerList[0].pos)
+        return
+      }
+      // Plusieurs joueurs mais mauvaise direction → rebond
+      physics.friction=0.973;physics.maxBounces=2;physics.freeThrow=false
       physics.vx=dragVx;physics.vy=dragVy;physics.bounceCount=0
       physics.stopped=false;physics.running=true;physics._tick()
-      setStatus('❌ Aucun joueur dans cette direction !')
+      setStatus('↩ Vise mieux !')
     } else {
-      // Pas de geste → balle posée, attente
+      // Pas de geste → si un seul joueur, on lui envoie direct
+      if(playerList.length===1){
+        physics.stopped=true
+        sendBallTo(playerList[0].player,playerList[0].pos)
+        return
+      }
       physics.stopped=true;throwHint.style.display='block'
       setStatus('⚽ Glisse vers un joueur !')
     }
