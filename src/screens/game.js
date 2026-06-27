@@ -683,8 +683,19 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   /* ══ SUPABASE ══ */
   async function updateBallState(data){if(!sb)return;await sb.from('ball_state').update({...data,updated_at:new Date().toISOString()}).eq('id','current')}
   async function updatePosition(){
-    if(!myId||myLat===null||simulationMode||!sb)return
-    await sb.from('ball_players').upsert({id:myId,pseudo:myPseudo,latitude:myLat,longitude:myLng,last_seen:new Date().toISOString(),ready:iReady,user_id:myUser?.id||null})
+    if(!myId||simulationMode||!sb)return
+    if(myLat===null)return  // pas encore de position
+    const{error}=await sb.from('ball_players').upsert({
+      id:myId,
+      pseudo:myPseudo,
+      latitude:myLat,
+      longitude:myLng,
+      last_seen:new Date().toISOString(),
+      ready:iReady,
+      user_id:myUser?.id||null
+    })
+    if(error)dbg('upsert ERR: '+error.message)
+    else dbg('upsert OK lat='+myLat.toFixed(4))
   }
 
   function subscribeRealtime(){
@@ -711,11 +722,15 @@ export function initGame(sb, myUser, myPseudo, simulationMode=false) {
   }
 
   const getPos=()=>new Promise(resolve=>{
-    if(!navigator.geolocation){resolve({lat:43.2965,lng:5.3698});return}
+    if(!navigator.geolocation){
+      dbg('no geolocation — using default')
+      resolve({lat:43.2965,lng:5.3698});return
+    }
+    dbg('requesting GPS...')
     navigator.geolocation.getCurrentPosition(
-      p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude}),
-      ()=>resolve({lat:43.2965+(Math.random()-.5)*.0003,lng:5.3698+(Math.random()-.5)*.0003}),
-      {timeout:6000,enableHighAccuracy:true}
+      p=>{dbg('GPS OK '+p.coords.latitude.toFixed(4));resolve({lat:p.coords.latitude,lng:p.coords.longitude})},
+      e=>{dbg('GPS fail: '+e.message+' — using default');resolve({lat:43.2965+(Math.random()-.5)*.0003,lng:5.3698+(Math.random()-.5)*.0003})},
+      {timeout:8000,enableHighAccuracy:false}
     )
   })
 
